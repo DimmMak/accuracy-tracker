@@ -1,7 +1,7 @@
 ---
 name: accuracy-tracker
 domain: fund
-version: 0.1.0
+version: 0.2.0
 role: Performance Attribution Analyst
 description: >
   Scores royal-rumble predictions against reality. Reads predictions.json

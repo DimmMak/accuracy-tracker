@@ -1,15 +1,28 @@
 #!/usr/bin/env bash
+# accuracy-tracker — install script (standard fleet template, S3-compliant)
 set -euo pipefail
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-INSTALL_DIR="$HOME/.claude/skills/accuracy-tracker"
+
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
+DEST="$HOME/.claude/skills/accuracy-tracker"
 STALE_ZIP="$HOME/.claude/skills/accuracy-tracker.skill"
 
 echo "📦 accuracy-tracker install/sync"
+echo "   source: $SRC"
+echo "   target: $DEST"
+
+# ─── Auto-validate SKILL.md against fleet schema v0.3 ───
+VALIDATOR="$HOME/.claude/skills/future-proof/scripts/validate-skill.py"
+if [ -f "$VALIDATOR" ]; then
+  python3 "$VALIDATOR" --schema-version 0.3 "$SRC/SKILL.md" || {
+    echo "❌ SKILL.md failed schema v0.3 validation — install aborted"
+    exit 1
+  }
+fi
+# ───────────────────────────────────────────────────────────
+
 [ -f "$STALE_ZIP" ] && { echo "🗑️  removing stale $STALE_ZIP"; rm "$STALE_ZIP"; }
-[ "${1:-}" = "--clean" ] && rm -rf "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR"
-cp "$REPO_DIR/SKILL.md" "$INSTALL_DIR/"
-cp -R "$REPO_DIR/scripts" "$INSTALL_DIR/"
-[ -d "$REPO_DIR/data" ] && cp -R "$REPO_DIR/data" "$INSTALL_DIR/"
-VERSION=$(grep -m1 "^version:" "$INSTALL_DIR/SKILL.md" | awk '{print $2}')
-echo "✅ installed accuracy-tracker v$VERSION — restart Claude Code to reload"
+{ [ -L "$DEST" ] || [ -e "$DEST" ]; } && rm -rf "$DEST"
+
+ln -s "$SRC" "$DEST"
+VERSION=$(grep -m1 "^version:" "$SRC/SKILL.md" | awk '{print $2}')
+echo "✅ accuracy-tracker v$VERSION installed as symlink → $SRC"
