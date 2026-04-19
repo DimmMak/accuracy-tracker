@@ -1,5 +1,21 @@
 # CHANGELOG — Accuracy Tracker
 
+## v0.2.0 — 2026-04-18
+
+**World-Class Overhaul shipped.** Part of the fleet-wide upgrade to tree+plugin+unix architecture.
+
+- 🌳 **Tree:** `domain:` field added to frontmatter (fund)
+- 🎮 **Plugin:** `capabilities:` block declares reads / writes / calls / cannot
+- 🐧 **Unix:** `unix_contract:` block declares data_format / schema_version / stdin_support / stdout_format / composable_with
+- 🛡️ Schema v0.3 validation required at install (via `future-proof/scripts/validate-skill.py`)
+- 🔗 Install converted to symlink pattern (kills drift between Desktop source and live install)
+- 🏷️ Tagged at `v-2026-04-18-world-class` for rollback
+
+See `memory/project_world_class_architecture.md` for the full model.
+
+---
+
+
 ## [2026-04-18] — v0.1.0 — Initial ship
 
 **Trigger:** User noticed "hypotheses are being stored but nothing's scoring them yet — that's the T1 gap." Shipped.
