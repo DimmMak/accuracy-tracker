@@ -1,6 +1,6 @@
 # 📊 Accuracy Tracker
 
-> Performance Attribution Analyst for Waypoint Capital.
+> Performance Attribution Analyst for Blue Hill Capital.
 > Converts stored hypotheses into measurable track record.
 
 ## What it does
