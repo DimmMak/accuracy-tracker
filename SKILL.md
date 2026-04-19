@@ -9,6 +9,22 @@ description: >
   prices via price-desk, computes hit rates. Pair-relative scoring is
   cleaner signal than absolute (controls for market beta).
   Commands: .accuracy | .accuracy summary | .accuracy rumbles | .accuracy pairs | .accuracy TICKER | .accuracy log
+  NOT for: making new predictions (use .rumble).
+  NOT for: pulling live market data (use price-desk/fundamentals-desk/technicals-desk).
+  NOT for: Howard Marks-style memo writeups (use .journalist).
+capabilities:
+  reads:
+    - "royal-rumble/data/predictions.json"
+    - "royal-rumble/data/comparisons.json"
+    - "price-desk output"
+  writes:
+    - "accuracy-tracker/data/*.jsonl"
+  calls:
+    - "price-desk (via .price)"
+  cannot:
+    - "modify other skills' data"
+    - "create new predictions"
+    - "write outside own data folder"
 ---
 
 # Accuracy Tracker — Performance Attribution Analyst
