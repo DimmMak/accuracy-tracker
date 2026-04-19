@@ -25,6 +25,14 @@ capabilities:
     - "modify other skills' data"
     - "create new predictions"
     - "write outside own data folder"
+unix_contract:
+  data_format: "jsonl"
+  schema_version: "0.1.0"
+  stdin_support: false
+  stdout_format: "json"
+  composable_with:
+    - "price-desk"
+    - "royal-rumble"
 ---
 
 # Accuracy Tracker — Performance Attribution Analyst
