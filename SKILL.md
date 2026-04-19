@@ -1,5 +1,6 @@
 ---
 name: accuracy-tracker
+domain: fund
 version: 0.1.0
 role: Performance Attribution Analyst
 description: >
