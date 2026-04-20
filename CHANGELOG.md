@@ -1,5 +1,20 @@
 # CHANGELOG — Accuracy Tracker
 
+## v0.3.0 — 2026-04-20
+
+**Per-legend hit-rate attribution.** Dalio believability-weighted decision-making, made explicit.
+
+- 🏛️ **New command:** `.accuracy legends` — scores every voting + advisory legend's individual stance against actual forward return, aggregated across all rumbles
+- 📊 **Hit / Miss / Neutral** breakdown per legend, sorted by hit rate
+- 💰 **"Avg return when bullish"** column reveals which legends generate real alpha, not just directional accuracy
+- 🎯 **Calibration milestones:** <10 = noise · 10-20 = trend · 20+ = attribution starts · 50 = v1.0
+- 📜 **Logged to accuracy-scores.jsonl** with legend-level breakdown for trend tracking
+- 🧬 Foundation for future weight-tilting: high-hit-rate legends earn more weight; low-hit-rate legends earn less (or removal)
+
+**Why:** Previously, accuracy-tracker graded the OVERALL verdict only. Every legend was weighted equally regardless of track record. This left the single most-important Bridgewater-quality signal uncaptured: *which pillars actually predict well*? v0.3 fixes that.
+
+---
+
 ## v0.2.0 — 2026-04-18
 
 **World-Class Overhaul shipped.** Part of the fleet-wide upgrade to tree+plugin+unix architecture.

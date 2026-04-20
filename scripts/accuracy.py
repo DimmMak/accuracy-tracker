@@ -16,6 +16,7 @@ Usage:
   python3 accuracy.py summary          → high-level dashboard
   python3 accuracy.py rumbles          → score every single-ticker rumble
   python3 accuracy.py pairs            → score every .compare verdict
+  python3 accuracy.py legends          → per-legend hit-rate attribution (v0.3+)
   python3 accuracy.py TICKER           → score one ticker's rumble history
   python3 accuracy.py log [N]          → score log
 """
@@ -49,13 +50,16 @@ What do you want to score?
 3. ⚔️  Score every compare verdict
      .accuracy pairs              (comparisons.json — pair-relative)
 
-4. 🔍 Score one ticker's history
+4. 🏛️ Per-legend hit-rate attribution  ✨ v0.3+
+     .accuracy legends            (which pillars actually predict well)
+
+5. 🔍 Score one ticker's history
      .accuracy TICKER             (all rumbles on that ticker)
 
-5. 📜 Show score log
+6. 📜 Show score log
      .accuracy log [N]            (last N scoring runs)
 
-6. ❓ This menu
+7. ❓ This menu
      .accuracy                    (no args = this)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -293,6 +297,148 @@ def score_ticker(ticker):
         print(f'{entry_date:>10} {str(days):>5} {D}{entry_price:>7.2f} {D}{live_price:>7.2f} {return_pct:>+7.2f}% {verdict:>12} {score:>8}')
 
 
+def score_legends():
+    """Per-legend hit-rate attribution (v0.3+).
+
+    For each rumble in predictions.json, extract each voting legend's stance
+    value and score it against actual forward return. Aggregate per legend
+    to reveal which pillars actually predict well — the Dalio "believability-
+    weighted" foundation. Advisory legends included separately (stance string
+    only — no numeric value — so hit/miss derived from BULL/BEAR/NEUTRAL text).
+
+    A stance is a HIT if its directional sign matches the actual return sign.
+    HOLD/NEUTRAL stances excluded from hit/miss (no directional call).
+    """
+    data = load_json(PREDICTIONS, {"rumbles": []})
+    rumbles = data.get("rumbles", [])
+
+    if not rumbles:
+        print("❌ No rumbles logged yet in predictions.json")
+        return
+
+    print(f"\n🏛️  PER-LEGEND ATTRIBUTION — {len(rumbles)} rumble(s) on record\n")
+
+    # Aggregate: {legend: {"hits": N, "total": N, "total_return_pct": float}}
+    voting_stats = {}
+    advisory_stats = {}
+
+    scored_rumbles = 0
+    for r in rumbles:
+        ticker = r.get("ticker", "?")
+        entry_price = r.get("price")
+        entry_date = r.get("date", "")
+
+        if not entry_price or entry_price == 0:
+            continue
+
+        live_price = get_live_price(ticker)
+        if live_price is None:
+            continue
+
+        actual_return_pct = (live_price - entry_price) / entry_price * 100
+        actual_direction = 1 if actual_return_pct > 0 else (-1 if actual_return_pct < 0 else 0)
+        scored_rumbles += 1
+
+        # Score each voting legend
+        for legend, info in r.get("voting_stances", {}).items():
+            value = info.get("value", 0)
+            if legend not in voting_stats:
+                voting_stats[legend] = {"hits": 0, "misses": 0, "neutrals": 0, "total_return_when_bullish": 0.0, "bullish_count": 0}
+            stats = voting_stats[legend]
+            stance_direction = 1 if value > 0 else (-1 if value < 0 else 0)
+            if stance_direction == 0:
+                stats["neutrals"] += 1
+            elif stance_direction == actual_direction:
+                stats["hits"] += 1
+            else:
+                stats["misses"] += 1
+            # Track: when this legend was bullish, what was avg return?
+            if stance_direction > 0:
+                stats["total_return_when_bullish"] += actual_return_pct
+                stats["bullish_count"] += 1
+
+        # Score each advisory legend (stance string only)
+        for legend, info in r.get("advisory_stances", {}).items():
+            stance = info.get("stance", "").upper()
+            if legend not in advisory_stats:
+                advisory_stats[legend] = {"hits": 0, "misses": 0, "neutrals": 0}
+            stats = advisory_stats[legend]
+            # Parse stance string to direction
+            if "BULL" in stance or "BUY" in stance or "LONG" in stance:
+                stance_direction = 1
+            elif "BEAR" in stance or "SELL" in stance or "SHORT" in stance:
+                stance_direction = -1
+            else:
+                stance_direction = 0
+            if stance_direction == 0:
+                stats["neutrals"] += 1
+            elif stance_direction == actual_direction:
+                stats["hits"] += 1
+            else:
+                stats["misses"] += 1
+
+    if scored_rumbles == 0:
+        print("⚠️  No scorable rumbles (could not fetch live prices)")
+        return
+
+    # Render voting legends table
+    print(f"Scored against live prices for {scored_rumbles} rumble(s)")
+    print()
+    print("🗳️  VOTING LEGENDS (weighted in championship score)")
+    print("=" * 82)
+    print(f'{"Legend":<18} {"Hits":>5} {"Misses":>7} {"Neutral":>8} {"Scored":>7} {"Hit Rate":>10} {"Avg Ret Bull":>13}')
+    print("-" * 82)
+
+    # Sort by hit rate descending
+    def rate(s):
+        scored = s["hits"] + s["misses"]
+        return (s["hits"] / scored) if scored else -1
+
+    for legend in sorted(voting_stats.keys(), key=lambda k: rate(voting_stats[k]), reverse=True):
+        s = voting_stats[legend]
+        scored = s["hits"] + s["misses"]
+        hit_rate = f"{s['hits']/scored*100:.1f}%" if scored else "—"
+        avg_bull = f"{s['total_return_when_bullish']/s['bullish_count']:+.2f}%" if s["bullish_count"] else "—"
+        print(f'{legend:<18} {s["hits"]:>5} {s["misses"]:>7} {s["neutrals"]:>8} {scored:>7} {hit_rate:>10} {avg_bull:>13}')
+
+    # Render advisory legends table
+    if advisory_stats:
+        print()
+        print("📚 ADVISORY LEGENDS (no voting weight yet — accuracy-validated)")
+        print("=" * 60)
+        print(f'{"Legend":<18} {"Hits":>5} {"Misses":>7} {"Neutral":>8} {"Hit Rate":>10}')
+        print("-" * 60)
+        for legend in sorted(advisory_stats.keys(), key=lambda k: rate(advisory_stats[k]), reverse=True):
+            s = advisory_stats[legend]
+            scored = s["hits"] + s["misses"]
+            hit_rate = f"{s['hits']/scored*100:.1f}%" if scored else "—"
+            print(f'{legend:<18} {s["hits"]:>5} {s["misses"]:>7} {s["neutrals"]:>8} {hit_rate:>10}')
+
+    # Calibration note
+    print()
+    if scored_rumbles < 10:
+        print(f"⚠️  Calibration: {scored_rumbles} rumbles scored — too few for reliable per-legend signal")
+        print("   Reliable trend starts at 10 · legend-level attribution at 20 · v1.0 at 50")
+    elif scored_rumbles < 20:
+        print(f"📈 Calibration: {scored_rumbles} rumbles scored — first trend visible, noise still high")
+    else:
+        print(f"🎯 Calibration: {scored_rumbles} rumbles scored — legend attribution starting to mean something")
+
+    print()
+    print("💡 Use: legends with consistently high hit rates earn larger weight;")
+    print("   legends with consistently low hit rates earn smaller weight (or removal).")
+    print("   This is Dalio's 'believability-weighted decision making' — made explicit.")
+
+    # Log to score trend
+    log_score({
+        "type": "legends",
+        "run_at": datetime.now(timezone.utc).isoformat(),
+        "scored_rumbles": scored_rumbles,
+        "voting": {k: {"hits": v["hits"], "misses": v["misses"], "neutrals": v["neutrals"]} for k, v in voting_stats.items()},
+        "advisory": {k: {"hits": v["hits"], "misses": v["misses"], "neutrals": v["neutrals"]} for k, v in advisory_stats.items()},
+    })
+
+
 def summary():
     """Cross-all aggregate dashboard."""
     rumbles = load_json(PREDICTIONS, {"rumbles": []}).get("rumbles", [])
@@ -358,6 +504,8 @@ def main():
         score_rumbles()
     elif cmd == "pairs":
         score_pairs()
+    elif cmd == "legends":
+        score_legends()
     elif cmd == "log":
         n = 10
         if len(args) > 1:

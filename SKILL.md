@@ -1,7 +1,7 @@
 ---
 name: accuracy-tracker
 domain: fund
-version: 0.2.0
+version: 0.3.0
 role: Performance Attribution Analyst
 description: >
   Scores royal-rumble predictions against reality. Reads predictions.json
@@ -45,6 +45,7 @@ Converts stored hypotheses into measurable track record. Without this skill, eve
 - `.accuracy summary` — cross-all dashboard
 - `.accuracy rumbles` — score every single-ticker rumble (hit rate)
 - `.accuracy pairs` — score every .compare verdict (pair-relative, cleanest signal)
+- `.accuracy legends` — **per-legend hit-rate attribution (v0.3+)** — Dalio believability-weighted edge
 - `.accuracy TICKER` — score one ticker's rumble history
 - `.accuracy log [N]` — recent scoring runs
 
