@@ -1,5 +1,25 @@
 # CHANGELOG — Accuracy Tracker
 
+## v0.4.0 — 2026-04-20
+
+**Weekly reflection ritual — Dalio's pain + reflection = progress, made concrete.**
+
+- 🔬 **New command:** `.accuracy review [Nd]` — default 7d window, optional `14d` / `30d` / `90d`
+- 📊 **6-section structured report:**
+  1. What happened (hit/miss/hold/unscored breakdown)
+  2. Your call vs Judge (hypothesis-vs-verdict divergence tracking)
+  3. Legend scorecard for THIS WINDOW only (not all-time)
+  4. Patterns Claude auto-surfaces (misses, divergences, over-HOLDing, unscored fetch fails, small-sample noise)
+  5. Reflection prompts (user fills in — Claude does NOT fabricate your reflection)
+  6. Metadata persisted to `data/reflections.jsonl` for trend tracking
+- 🧬 **Divergence signal:** when you pre-registered a hypothesis and diverged from judge, it's flagged — divergence = training signal
+- 📝 **User-owned reflection text:** machine tracks metadata only (hits/misses/patterns); your written reflections are YOURS — paste into notepad/journal
+- 🕯️ **Ritual discipline:** closes each Sunday-morning review loop → compounds over weeks
+
+**Why:** `.accuracy legends` (v0.3) shows WHO predicted well. `.accuracy review` closes the loop — forces you to actually LOOK at the data, ask Dalio's 5 reflection questions, and write down what you learned. Without this ritual, per-legend data is noise. With it, every week becomes a compounding calibration loop.
+
+---
+
 ## v0.3.0 — 2026-04-20
 
 **Per-legend hit-rate attribution.** Dalio believability-weighted decision-making, made explicit.

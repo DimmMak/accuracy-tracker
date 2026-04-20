@@ -17,6 +17,7 @@ Usage:
   python3 accuracy.py rumbles          → score every single-ticker rumble
   python3 accuracy.py pairs            → score every .compare verdict
   python3 accuracy.py legends          → per-legend hit-rate attribution (v0.3+)
+  python3 accuracy.py review [Nd]      → Dalio weekly reflection ritual (v0.4+)
   python3 accuracy.py TICKER           → score one ticker's rumble history
   python3 accuracy.py log [N]          → score log
 """
@@ -53,13 +54,17 @@ What do you want to score?
 4. 🏛️ Per-legend hit-rate attribution  ✨ v0.3+
      .accuracy legends            (which pillars actually predict well)
 
-5. 🔍 Score one ticker's history
+5. 🔬 Weekly reflection ritual (Dalio pain+reflection)  ✨ v0.4+
+     .accuracy review             (last 7d, structured pain-pass-progress)
+     .accuracy review 14d         (last 14d / 30d / 90d)
+
+6. 🔍 Score one ticker's history
      .accuracy TICKER             (all rumbles on that ticker)
 
-6. 📜 Show score log
+7. 📜 Show score log
      .accuracy log [N]            (last N scoring runs)
 
-7. ❓ This menu
+8. ❓ This menu
      .accuracy                    (no args = this)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -439,6 +444,248 @@ def score_legends():
     })
 
 
+def score_review(window_days=7):
+    """Dalio weekly reflection ritual (v0.4+).
+
+    Generates a structured reflection report for rumbles in the last N days:
+    - Hit/miss breakdown
+    - Hypothesis-vs-judge divergence (self-scorekeeping)
+    - Per-legend scorecard THIS WINDOW ONLY (not all-time)
+    - Pattern observations auto-surfaced
+    - Reflection prompt template for user to fill in
+    - Persists to data/reflections.jsonl for compounding
+
+    'Pain + reflection = progress' — Dalio.
+    """
+    data = load_json(PREDICTIONS, {"rumbles": []})
+    rumbles = data.get("rumbles", [])
+
+    if not rumbles:
+        print("❌ No rumbles logged yet. Run .rumble TICKER first.")
+        return
+
+    # Filter by window
+    window_rumbles = []
+    for r in rumbles:
+        d = days_between(r.get("date", ""))
+        if d is not None and 0 <= d <= window_days:
+            window_rumbles.append(r)
+
+    now = datetime.now(timezone.utc)
+    window_label = f"{window_days}d"
+    print()
+    print(f"🔬 REFLECTION RITUAL — {now.strftime('%Y-%m-%d')} (last {window_label})")
+    print("━" * 65)
+    print(f"Dalio's pain + reflection = progress. Review what happened. Learn.")
+    print("━" * 65)
+    print()
+
+    if not window_rumbles:
+        print(f"⚠️  No rumbles in the last {window_label}.")
+        print(f"   Most recent rumble: {rumbles[-1].get('date', '?') if rumbles else 'none'}")
+        print(f"   Consider widening with: .accuracy review 30d / 90d")
+        return
+
+    # ═══════════════════════════════════════════════
+    # SECTION 1 — What happened
+    # ═══════════════════════════════════════════════
+    print(f"📊 WHAT HAPPENED — {len(window_rumbles)} rumble(s) this window\n")
+
+    hits, misses, holds, unscored = 0, 0, 0, 0
+    scored_lines = []
+    for r in window_rumbles:
+        ticker = r.get("ticker", "?")
+        entry_price = r.get("price")
+        verdict = r.get("verdict", "?")
+        expected = verdict_to_expected_direction(verdict)
+        live = get_live_price(ticker)
+        days = days_between(r.get("date", ""))
+
+        if not entry_price or live is None:
+            unscored += 1
+            scored_lines.append(f"   ⚪ {ticker:<6} {verdict:>12}  (price fetch failed)")
+            continue
+
+        ret_pct = (live - entry_price) / entry_price * 100
+        if expected == 0:
+            tag = "⚪ HOLD"
+            holds += 1
+        elif (expected > 0 and ret_pct > 0) or (expected < 0 and ret_pct < 0):
+            tag = "✅ HIT"
+            hits += 1
+        else:
+            tag = "❌ MISS"
+            misses += 1
+        scored_lines.append(f"   {tag} {ticker:<6} {verdict:>12}  {ret_pct:+7.2f}% over {days}d")
+
+    for line in scored_lines:
+        print(line)
+
+    scored = hits + misses
+    hit_rate = f"{hits/scored*100:.1f}%" if scored else "—"
+    print()
+    print(f"   Hits: {hits}  ·  Misses: {misses}  ·  Holds: {holds}  ·  Unscored: {unscored}")
+    print(f"   Hit rate (excluding HOLD): {hit_rate}")
+    print()
+
+    # ═══════════════════════════════════════════════
+    # SECTION 2 — Hypothesis vs Judge divergence
+    # ═══════════════════════════════════════════════
+    print("🎯 YOUR CALL vs THE JUDGE (self-scorekeeping — the honest mirror)")
+    print()
+    divergences = []
+    for r in window_rumbles:
+        hyp = r.get("user_hypothesis", {})
+        hyp_dir = hyp.get("direction", "skip")
+        hyp_conv = hyp.get("conviction", "skip")
+        verdict = r.get("verdict", "?")
+        ticker = r.get("ticker", "?")
+
+        if hyp_dir in ("skip", None):
+            continue  # user didn't pre-register
+
+        # Map judge verdict to direction
+        judge_dir = "BULL" if verdict_to_expected_direction(verdict) > 0 else ("BEAR" if verdict_to_expected_direction(verdict) < 0 else "NEUTRAL")
+
+        aligned = (hyp_dir.upper() == judge_dir) or (hyp_dir == "NEUTRAL" and judge_dir == "NEUTRAL")
+        div_tag = "🟢 ALIGNED" if aligned else "🔴 DIVERGED"
+        divergences.append((ticker, hyp_dir, hyp_conv, verdict, judge_dir, aligned))
+        print(f"   {div_tag}  {ticker:<6} you={hyp_dir:<7}/{hyp_conv:<4}  judge={verdict:<12}")
+
+    if not divergences:
+        print("   (No pre-registered hypotheses in this window — try not --skip next time)")
+    else:
+        aligned_count = sum(1 for d in divergences if d[5])
+        print()
+        print(f"   Aligned: {aligned_count}/{len(divergences)}  ·  Diverged: {len(divergences)-aligned_count}")
+        print(f"   🧬 Divergence = training signal. If you diverged AND judge was right,")
+        print(f"      what did the winning legend see that you missed?")
+    print()
+
+    # ═══════════════════════════════════════════════
+    # SECTION 3 — This window's legend scorecard
+    # ═══════════════════════════════════════════════
+    print("🏛️  LEGEND SCORECARD (this window only)")
+    print()
+    voting_stats = {}
+    for r in window_rumbles:
+        ticker = r.get("ticker")
+        entry = r.get("price")
+        if not entry:
+            continue
+        live = get_live_price(ticker)
+        if live is None:
+            continue
+        ret = (live - entry) / entry * 100
+        actual_dir = 1 if ret > 0 else (-1 if ret < 0 else 0)
+        for legend, info in r.get("voting_stances", {}).items():
+            v = info.get("value", 0)
+            if legend not in voting_stats:
+                voting_stats[legend] = {"hits": 0, "misses": 0, "neutrals": 0}
+            s = voting_stats[legend]
+            stance_dir = 1 if v > 0 else (-1 if v < 0 else 0)
+            if stance_dir == 0:
+                s["neutrals"] += 1
+            elif stance_dir == actual_dir:
+                s["hits"] += 1
+            else:
+                s["misses"] += 1
+
+    if voting_stats:
+        def rate(s):
+            scored = s["hits"] + s["misses"]
+            return (s["hits"] / scored) if scored else -1
+        top = sorted(voting_stats.items(), key=lambda kv: rate(kv[1]), reverse=True)[:3]
+        bottom = sorted(voting_stats.items(), key=lambda kv: rate(kv[1]))[:3]
+        print("   🥇 TOP 3 THIS WINDOW:")
+        for legend, s in top:
+            scored = s["hits"] + s["misses"]
+            hr = f"{s['hits']/scored*100:.0f}%" if scored else "—"
+            print(f"      {legend:<16} {s['hits']}H/{s['misses']}M/{s['neutrals']}N  → {hr}")
+        print()
+        print("   🥉 BOTTOM 3 THIS WINDOW (watch for structural bias):")
+        for legend, s in bottom:
+            scored = s["hits"] + s["misses"]
+            hr = f"{s['hits']/scored*100:.0f}%" if scored else "—"
+            print(f"      {legend:<16} {s['hits']}H/{s['misses']}M/{s['neutrals']}N  → {hr}")
+    print()
+
+    # ═══════════════════════════════════════════════
+    # SECTION 4 — Auto-surfaced patterns
+    # ═══════════════════════════════════════════════
+    print("🔍 PATTERNS CLAUDE NOTICED (pain + reflection fuel)")
+    print()
+    patterns = []
+    if misses > 0:
+        patterns.append(f"❗ {misses} miss(es) this window — dig into WHY the judge was wrong")
+    if len(divergences) >= 2 and sum(1 for d in divergences if not d[5]) >= 2:
+        patterns.append("❗ Multiple divergences between your call and judge — your instinct may need calibration")
+    if holds >= len(window_rumbles) / 2:
+        patterns.append("⚠️  Half+ were HOLD verdicts — are you rumbling on conviction signals or randomly?")
+    if unscored > 0:
+        patterns.append(f"⚠️  {unscored} rumble(s) couldn't be scored (price fetch fail) — investigate")
+    if hits == scored and scored >= 3:
+        patterns.append("🏆 Perfect hit rate this window — BUT — check sample size before celebrating. 3/3 is noise-level.")
+    if not patterns:
+        patterns.append("  (Thin window — no pattern strong enough to flag.)")
+    for p in patterns:
+        print(f"   {p}")
+    print()
+
+    # ═══════════════════════════════════════════════
+    # SECTION 5 — Reflection prompts (user fills in)
+    # ═══════════════════════════════════════════════
+    print("📝 REFLECTION PROMPTS (fill these in yourself — copy/paste below)")
+    print("━" * 65)
+    print("""
+   1. What SURPRISED me this window? (unexpected outcome — win or loss)
+      →
+
+   2. Where did I DISAGREE with a legend in hindsight?
+      → legend:
+      → my view:
+
+   3. What PATTERN is emerging across my last 5-10 rumbles?
+      →
+
+   4. What PAIN POINT deserves action? (bad sizing, slow exec, chase, FOMO)
+      →
+
+   5. What will I do DIFFERENTLY next week?
+      →
+""")
+    print("━" * 65)
+
+    # ═══════════════════════════════════════════════
+    # SECTION 6 — Persist
+    # ═══════════════════════════════════════════════
+    reflections_log = Path(__file__).parent.parent / "data" / "reflections.jsonl"
+    reflections_log.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema_version": "0.1",
+        "run_at": now.isoformat(),
+        "window_days": window_days,
+        "rumbles_in_window": len(window_rumbles),
+        "hits": hits,
+        "misses": misses,
+        "holds": holds,
+        "unscored": unscored,
+        "hit_rate_pct": round(hits/scored*100, 2) if scored else None,
+        "divergences": len(divergences),
+        "aligned": sum(1 for d in divergences if d[5]),
+        "patterns_surfaced": len(patterns),
+    }
+    with reflections_log.open("a") as f:
+        f.write(json.dumps(record) + "\n")
+
+    print(f"✅ Reflection metadata logged → {reflections_log.relative_to(Path.home())}")
+    print(f"   (Your written reflection text is YOURS — paste into your journal,")
+    print(f"    notepad, or append to this file manually. Machine tracks metadata only.)")
+    print()
+    print("🧬 Next review: ~7 days from now. Suggest a recurring Sunday morning slot.")
+    print()
+
+
 def summary():
     """Cross-all aggregate dashboard."""
     rumbles = load_json(PREDICTIONS, {"rumbles": []}).get("rumbles", [])
@@ -506,6 +753,16 @@ def main():
         score_pairs()
     elif cmd == "legends":
         score_legends()
+    elif cmd == "review":
+        # Optional second arg: window like "7d", "14d", "30d"
+        window = 7
+        if len(args) > 1:
+            w = args[1].lower().rstrip("d")
+            try:
+                window = int(w)
+            except ValueError:
+                pass
+        score_review(window_days=window)
     elif cmd == "log":
         n = 10
         if len(args) > 1:
