@@ -1,0 +1,1 @@
+{"schema_version": "0.1", "run_at": "2026-04-20T18:41:03.037337+00:00", "window_days": 7, "rumbles_in_window": 5, "hits": 3, "misses": 0, "holds": 2, "unscored": 0, "hit_rate_pct": 75.0, "divergences": 2, "aligned": 1, "patterns_surfaced": 1}
