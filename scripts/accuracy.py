@@ -736,6 +736,137 @@ def show_log(n=10):
             continue
 
 
+def score_cohort():
+    """v0.5+ — Group rumbles by rumble_version, compute per-cohort hit rate,
+    show version-to-version delta. Answers: 'Did my fix actually improve accuracy?'
+
+    Requires rumble_version field on predictions.json entries.
+    """
+    import statistics
+    data = load_json(PREDICTIONS, {"rumbles": []})
+    rumbles = data.get("rumbles", [])
+
+    if not rumbles:
+        print("⚠️  No rumbles logged yet.")
+        return
+
+    # Group by version
+    cohorts = {}
+    for r in rumbles:
+        v = r.get("rumble_version", "untagged")
+        cohorts.setdefault(v, []).append(r)
+
+    print("\n📊 ACCURACY COHORT ANALYSIS — BY RUMBLE_VERSION")
+    print(f"    Scored at: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print("=" * 90)
+
+    version_summaries = []
+
+    # Score each cohort
+    for version in sorted(cohorts.keys()):
+        rumbles_in = cohorts[version]
+        scored = 0
+        hits = 0
+        misses = 0
+        na = 0
+        returns = []
+        n_desks_sample = None
+        earliest_date = None
+        latest_date = None
+        verdict_breakdown = {"STRONG BUY": 0, "BUY": 0, "HOLD": 0, "SELL": 0, "STRONG SELL": 0}
+
+        for r in rumbles_in:
+            tkr = r.get("ticker")
+            date_str = r.get("date")
+            entry_price = r.get("price")
+            verdict = r.get("verdict", "?").upper()
+            n_desks = len(r.get("desks_used", []))
+            if n_desks_sample is None:
+                n_desks_sample = n_desks
+
+            verdict_breakdown[verdict] = verdict_breakdown.get(verdict, 0) + 1
+
+            if earliest_date is None or date_str < earliest_date:
+                earliest_date = date_str
+            if latest_date is None or date_str > latest_date:
+                latest_date = date_str
+
+            if not tkr or entry_price is None:
+                continue
+            live = get_live_price(tkr)
+            if live is None:
+                continue
+
+            ret_pct = (live - entry_price) / entry_price * 100
+            returns.append(ret_pct)
+
+            expected = verdict_to_expected_direction(verdict)
+            if expected == 0.0:
+                na += 1
+                continue
+            scored += 1
+            if expected > 0 and ret_pct > 0:
+                hits += 1
+            elif expected < 0 and ret_pct < 0:
+                hits += 1
+            else:
+                misses += 1
+
+        total = len(rumbles_in)
+        hit_rate = (hits / scored * 100) if scored > 0 else None
+        avg_return = statistics.mean(returns) if returns else None
+
+        summary_row = {
+            "version": version,
+            "total": total,
+            "n_desks": n_desks_sample,
+            "date_range": f"{earliest_date}→{latest_date}" if earliest_date else "-",
+            "scored": scored,
+            "hits": hits,
+            "misses": misses,
+            "na_hold": na,
+            "hit_rate": hit_rate,
+            "avg_return_pct": avg_return,
+            "verdict_breakdown": verdict_breakdown,
+        }
+        version_summaries.append(summary_row)
+
+    # Display table
+    print(f"{'Version':<14}{'Dates':<24}{'Desks':<7}{'N':<4}{'Scored':<8}{'Hits':<6}{'Miss':<6}{'Hold':<6}{'Hit%':<8}{'AvgRet%':<8}")
+    print("-" * 90)
+    for s in version_summaries:
+        hr = f"{s['hit_rate']:.0f}%" if s['hit_rate'] is not None else "n/a"
+        ar = f"{s['avg_return_pct']:+.2f}" if s['avg_return_pct'] is not None else "n/a"
+        print(f"{s['version']:<14}{s['date_range']:<24}{s['n_desks']:<7}{s['total']:<4}{s['scored']:<8}{s['hits']:<6}{s['misses']:<6}{s['na_hold']:<6}{hr:<8}{ar:<8}")
+
+    # Delta between consecutive versions
+    print("\n📈 Version-to-version delta (hit-rate + avg-return):")
+    print("-" * 90)
+    for i in range(1, len(version_summaries)):
+        prev = version_summaries[i - 1]
+        curr = version_summaries[i]
+        if prev["hit_rate"] is not None and curr["hit_rate"] is not None:
+            hr_delta = curr["hit_rate"] - prev["hit_rate"]
+            ar_delta = (curr["avg_return_pct"] or 0) - (prev["avg_return_pct"] or 0)
+            arrow = "↑" if hr_delta > 0 else ("↓" if hr_delta < 0 else "→")
+            print(f"  {prev['version']} → {curr['version']}:  hit-rate {hr_delta:+.1f}pp {arrow}  ·  avg-return {ar_delta:+.2f}pp")
+        else:
+            print(f"  {prev['version']} → {curr['version']}:  (insufficient scored rumbles)")
+
+    print("\n💡 Interpretation guide:")
+    print("  - hit-rate delta > 0 = fix helped accuracy")
+    print("  - hit-rate delta < 0 AND N < 10 per cohort = likely noise, need more data")
+    print("  - HOLD verdicts excluded from hit rate (no directional prediction)")
+    print(f"\nNote: cohort-level signal needs ≥10 directional rumbles per version to be meaningful.")
+
+    record = {
+        "type": "cohort",
+        "scored_at": datetime.now(timezone.utc).isoformat(),
+        "cohorts": version_summaries,
+    }
+    log_score(record)
+
+
 def main():
     args = sys.argv[1:]
 
@@ -753,6 +884,8 @@ def main():
         score_pairs()
     elif cmd == "legends":
         score_legends()
+    elif cmd == "cohort":
+        score_cohort()
     elif cmd == "review":
         # Optional second arg: window like "7d", "14d", "30d"
         window = 7
