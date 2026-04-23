@@ -1,14 +1,14 @@
 ---
 name: accuracy-tracker
 domain: fund
-version: 0.5.0
+version: 0.6.0
 role: Performance Attribution Analyst
 description: >
   Scores royal-rumble predictions against reality. Reads predictions.json
   (single-ticker rumbles), comparisons.json (pair verdicts), pulls live
   prices via price-desk, computes hit rates. Pair-relative scoring is
   cleaner signal than absolute (controls for market beta).
-  Commands: .accuracy | .accuracy summary | .accuracy rumbles | .accuracy pairs | .accuracy TICKER | .accuracy log
+  Commands: .accuracy | .accuracy summary | .accuracy rumbles | .accuracy pairs | .accuracy TICKER | .accuracy log | .accuracy checkin
   NOT for: making new predictions (use .rumble).
   NOT for: pulling live market data (use price-desk/fundamentals-desk/technicals-desk).
   NOT for: Howard Marks-style memo writeups (use .journalist).
@@ -48,6 +48,7 @@ Converts stored hypotheses into measurable track record. Without this skill, eve
 - `.accuracy legends` — **per-legend hit-rate attribution (v0.3+)** — Dalio believability-weighted edge
 - `.accuracy review [Nd]` — **weekly reflection ritual (v0.4+)** — Dalio pain+reflection=progress (default 7d, optional 14d/30d/90d)
 - `.accuracy cohort` — **cohort analysis by rumble_version (v0.5+)** — groups rumbles by system version, shows per-cohort hit rate + version-to-version delta. Answers "did my fix improve accuracy?"
+- `.accuracy checkin [--min-age=Nh] [--reschedule=Nh]` — **idempotent auto-scorer (v0.6+)** — grades every prediction ≥24h old, skips predictions scored within the reschedule window. Append-only `data/checkins.jsonl`. Closes the 'logged but never graded' gap.
 - `.accuracy TICKER` — score one ticker's rumble history
 - `.accuracy log [N]` — recent scoring runs
 

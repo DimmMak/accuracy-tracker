@@ -32,6 +32,7 @@ PREDICTIONS = HOME / "Desktop/CLAUDE CODE/royal-rumble/data/predictions.json"
 COMPARISONS = HOME / "Desktop/CLAUDE CODE/royal-rumble/data/comparisons.json"
 PRICE_SCRIPT = HOME / ".claude/skills/price-desk/scripts/price.py"
 SCORE_LOG = Path(__file__).parent.parent / "data" / "accuracy-scores.jsonl"
+CHECKIN_LOG = Path(__file__).parent.parent / "data" / "checkins.jsonl"
 SCORE_LOG.parent.mkdir(parents=True, exist_ok=True)
 
 D = "$"
@@ -64,7 +65,11 @@ What do you want to score?
 7. 📜 Show score log
      .accuracy log [N]            (last N scoring runs)
 
-8. ❓ This menu
+8. 🔁 Auto-checkin (grade all predictions ≥24h old) ✨ v0.6+
+     .accuracy checkin            (idempotent — skips fresh + recently scored)
+     .accuracy checkin --min-age=48h --reschedule=24h
+
+9. ❓ This menu
      .accuracy                    (no args = this)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -84,17 +89,174 @@ def load_json(path, default):
 
 def get_live_price(ticker):
     """Call price-desk; return current price float or None."""
+    rec = get_price_record(ticker)
+    if rec and rec.get("status") == "OK":
+        return rec.get("price")
+    return None
+
+
+def get_price_record(ticker):
+    """Full price-desk record (includes session_state + data_quality from v0.3.0)."""
     try:
         result = subprocess.run(
             ["python3", str(PRICE_SCRIPT), ticker],
             capture_output=True, text=True, timeout=15,
         )
         data = json.loads(result.stdout)
-        if isinstance(data, list) and data and data[0].get("status") == "OK":
-            return data[0].get("price")
+        if isinstance(data, list) and data:
+            return data[0]
     except Exception:
         pass
     return None
+
+
+def prediction_id(rumble):
+    return f'{rumble.get("ticker", "?")}_{rumble.get("date", "?")}'
+
+
+def hours_between_iso(a_iso, b_iso):
+    try:
+        a = datetime.fromisoformat(a_iso.replace("Z", "+00:00"))
+        b = datetime.fromisoformat(b_iso.replace("Z", "+00:00"))
+        return abs((b - a).total_seconds() / 3600.0)
+    except Exception:
+        return None
+
+
+def load_checkin_index():
+    """Return {prediction_id: latest_checkin_record} from checkins.jsonl."""
+    if not CHECKIN_LOG.exists():
+        return {}
+    latest = {}
+    with CHECKIN_LOG.open() as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+                pid = r.get("prediction_id")
+                if not pid:
+                    continue
+                if pid not in latest or r.get("run_at", "") > latest[pid].get("run_at", ""):
+                    latest[pid] = r
+            except Exception:
+                continue
+    return latest
+
+
+def _append_checkin(record):
+    try:
+        with CHECKIN_LOG.open("a") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
+
+
+def score_checkin(min_age_hours=24, reschedule_hours=24, verbose=True):
+    """
+    P2 auto-checkin: grade every prediction >=min_age_hours old that hasn't been
+    scored within reschedule_hours. Idempotent. Append-only log to data/checkins.jsonl.
+
+    Closes the 'logged but never graded' gap (royal-rumble 6 predictions, 0 checkins).
+    """
+    data = load_json(PREDICTIONS, {"rumbles": []})
+    rumbles = data.get("rumbles", [])
+    if not rumbles:
+        if verbose:
+            print("\u274c No rumbles in predictions.json \u2014 nothing to check in.")
+        return {"scored": 0, "skipped_fresh": 0, "skipped_recent": 0, "unscored": 0}
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    checkin_index = load_checkin_index()
+
+    scored = skipped_fresh = skipped_recent = unscored = 0
+    if verbose:
+        print(f"\n\U0001F501 AUTO-CHECKIN RUN \u2014 {now.strftime('%Y-%m-%d %H:%M UTC')}")
+        print(f"   min_age_hours={min_age_hours}  \u00b7  reschedule_hours={reschedule_hours}")
+        print("=" * 88)
+
+    for r in rumbles:
+        pid = prediction_id(r)
+        ticker = r.get("ticker", "?")
+        entry_price = r.get("price")
+        entry_date = r.get("date", "")
+        verdict = r.get("verdict", "?")
+
+        d = days_between(entry_date)
+        if d is None or d * 24 < min_age_hours:
+            skipped_fresh += 1
+            continue
+
+        last = checkin_index.get(pid)
+        if last:
+            h = hours_between_iso(last.get("run_at", ""), now_iso)
+            if h is not None and h < reschedule_hours:
+                skipped_recent += 1
+                continue
+
+        price_record = get_price_record(ticker)
+        if not price_record or price_record.get("status") != "OK":
+            reason = (price_record or {}).get("error", "price-desk fetch failed")
+            rec = {
+                "schema_version": "0.1",
+                "prediction_id": pid, "run_at": now_iso,
+                "ticker": ticker, "entry_date": entry_date, "days_elapsed": d,
+                "verdict": verdict, "score": "UNSCORED", "reason": reason,
+            }
+            _append_checkin(rec); unscored += 1
+            if verbose:
+                print(f"   \u26AA {pid:<22} UNSCORED  ({reason})")
+            continue
+
+        live = price_record.get("price")
+        if not entry_price or entry_price == 0 or live is None:
+            rec = {
+                "schema_version": "0.1",
+                "prediction_id": pid, "run_at": now_iso,
+                "ticker": ticker, "entry_date": entry_date, "days_elapsed": d,
+                "verdict": verdict, "score": "UNSCORED",
+                "reason": "missing entry or live price",
+            }
+            _append_checkin(rec); unscored += 1
+            continue
+
+        ret_pct = (live - entry_price) / entry_price * 100
+        expected = verdict_to_expected_direction(verdict)
+        if expected == 0:
+            score = "N/A"
+        elif (expected > 0 and ret_pct > 0) or (expected < 0 and ret_pct < 0):
+            score = "HIT"
+        else:
+            score = "MISS"
+
+        rec = {
+            "schema_version": "0.1",
+            "prediction_id": pid, "run_at": now_iso,
+            "ticker": ticker, "entry_date": entry_date, "days_elapsed": d,
+            "entry_price": entry_price, "live_price": live,
+            "return_pct": round(ret_pct, 2),
+            "verdict": verdict, "expected_direction": expected,
+            "score": score,
+            "source_price_desk": {
+                "session_state": price_record.get("session_state"),
+                "pulled_at": price_record.get("pulled_at"),
+            },
+        }
+        _append_checkin(rec); scored += 1
+        if verbose:
+            tag = {"HIT": "\u2705 HIT", "MISS": "\u274C MISS", "N/A": "\u26AA HOLD"}[score]
+            print(f"   {tag:<10} {pid:<22} {ret_pct:+7.2f}% over {d}d  verdict={verdict}")
+
+    if verbose:
+        print("=" * 88)
+        print(f"   Scored: {scored}  \u00b7  Fresh skipped: {skipped_fresh}  \u00b7  Recent skipped: {skipped_recent}  \u00b7  Unscored: {unscored}")
+
+    log_score({
+        "type": "checkin", "run_at": now_iso,
+        "scored": scored, "skipped_fresh": skipped_fresh,
+        "skipped_recent": skipped_recent, "unscored": unscored,
+        "total_predictions": len(rumbles),
+    })
+    return {"scored": scored, "skipped_fresh": skipped_fresh, "skipped_recent": skipped_recent, "unscored": unscored}
 
 
 def days_between(iso_date_str):
@@ -904,6 +1066,16 @@ def main():
             except ValueError:
                 pass
         show_log(n)
+    elif cmd == "checkin":
+        min_age, reschedule = 24, 24
+        for arg in args[1:]:
+            if arg.startswith("--min-age="):
+                try: min_age = int(arg.split("=")[1].rstrip("h"))
+                except ValueError: pass
+            elif arg.startswith("--reschedule="):
+                try: reschedule = int(arg.split("=")[1].rstrip("h"))
+                except ValueError: pass
+        score_checkin(min_age_hours=min_age, reschedule_hours=reschedule)
     else:
         # Treat as ticker
         score_ticker(args[0])

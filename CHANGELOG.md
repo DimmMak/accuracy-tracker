@@ -1,5 +1,27 @@
 # CHANGELOG — Accuracy Tracker
 
+## v0.6.0 — 2026-04-23 — Auto-checkin loop (close the grading gap)
+
+**Trigger:** user flagged P2 🔴 Critical — "6 predictions logged 2026-04-22, 0 checkins. Fleet logs but doesn't grade." Fund had prediction data but no systematic grading; every hit rate was manually triggered or stale.
+
+### Shipped
+- `.accuracy checkin` — idempotent auto-scorer; grades every prediction ≥24h old, skips predictions scored within the reschedule window (default 24h)
+- `data/checkins.jsonl` — append-only per-checkin log; one record per (prediction_id, run_at); prediction_id = `{ticker}_{date}`
+- `get_price_record()` helper — full price-desk record (carries `session_state` + `data_quality` from price-desk v0.3.0)
+- Flags `--min-age=Nh` (age gate) and `--reschedule=Nh` (re-run gate) for tuning
+
+### Verified (2026-04-23 21:38 UTC)
+First run scored 7 predictions (AMD +19.70% HIT, MU +27.58% HIT, NOW +2.26% HIT, TSLA / CRM / 2× NVDA = HOLD). Fresh (<24h) prediction correctly skipped. Second run: Scored 0, Recent skipped 7 — idempotency confirmed. No duplicate records written.
+
+### Schema
+- Skill `version` 0.5.0 → 0.6.0
+- New log schema `checkins.jsonl` v0.1 — records carry prediction_id, run_at, days_elapsed, score (HIT/MISS/N/A/UNSCORED), source_price_desk snapshot
+
+### Why this ships P2 of Data-Integrity Foundation
+Before this, rumble was a prediction generator with no closing loop. Now every rumble ≥24h old gets an audit-trailed score without manual effort. Compounding signal for `.accuracy legends`, `.accuracy review`, and `.accuracy cohort` — they all read the same feed now.
+
+---
+
 ## v0.4.0 — 2026-04-20
 
 **Weekly reflection ritual — Dalio's pain + reflection = progress, made concrete.**
